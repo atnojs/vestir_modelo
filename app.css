@@ -232,6 +232,40 @@ header p{color:var(--muted)}
   transition:transform .2s ease,box-shadow .25s ease,filter .25s ease;
 }
 
+#surprise-btn,
+.btn-surprise{
+  position:relative;
+  border:none;
+  border-radius:14px;
+  padding:.85rem 1.8rem;
+  font-weight:700;
+  letter-spacing:.02em;
+  color:#fff;
+  background:linear-gradient(135deg,#a78bfa,#f472b6);
+  box-shadow:0 10px 22px rgba(244,114,182,.22),0 0 0 1px rgba(255,255,255,.1) inset;
+  transition:transform .2s ease,box-shadow .25s ease,filter .25s ease;
+}
+
+#surprise-btn:hover:not(:disabled),
+.btn-surprise:hover:not(:disabled){
+  transform:translateY(-2px);
+  filter:brightness(1.06);
+  box-shadow:0 14px 30px rgba(244,114,182,.3),0 0 18px rgba(167,139,250,.35);
+}
+
+#surprise-btn:active:not(:disabled),
+.btn-surprise:active:not(:disabled){
+  transform:translateY(0) scale(.98);
+}
+
+#surprise-btn:disabled,
+.btn-surprise:disabled{
+  background:linear-gradient(135deg,#475569,#64748b);
+  color:#cbd5e1;
+  box-shadow:none;
+  cursor:not-allowed;
+}
+
 #generate-btn:hover:not(:disabled){
   transform:translateY(-2px);
   filter:brightness(1.06);

@@ -10,6 +10,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const outfitPrompt = document.getElementById('outfit-prompt');
     const compositionSelector = document.getElementById('composition-selector');
     const generateBtn = document.getElementById('generate-btn');
+    const surpriseBtn = document.getElementById('surprise-btn');
     const loadingSection = document.getElementById('loading-section');
     const errorSection = document.getElementById('error-section');
     const errorMessage = document.getElementById('error-message');
@@ -24,6 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let modelFile = null;
     let outfitFile = null;
     let selectedCompositions = [];
+    let isProcessing = false;
     const DB_NAME = 'vestir_modelo_db';
     const DB_VERSION = 1;
     const STORE_NAME = 'history';
@@ -215,6 +217,59 @@ document.addEventListener('DOMContentLoaded', () => {
         { id: 'pub-atmosphere', title: 'Ambiente de Pub', description: 'Escena tomando una copa.', prompt: "Genera una imagen de una escena de lifestyle: la modelo de la segunda imagen lleva la prenda de la primera en un pub. Iluminación alegre, ambiente joven." },
     ];
 
+    const fallbackSurpriseStyles = [
+        'Brutalismo digital editorial',
+        'Fotografia cinetica futurista',
+        'Neo-noir lluvioso con reflejos',
+        'Bauhaus experimental de moda',
+        'Dreamcore analogico con grano',
+        'Editorial retrofuturista 70s',
+        'Minimalismo zen con sombras duras',
+        'Color blocking avant-garde'
+    ];
+
+    const fetchStyleCandidatesFromWeb = async () => {
+        const sources = [
+            'https://en.wikipedia.org/w/api.php?action=query&list=categorymembers&cmtitle=Category:Art_movements&cmlimit=200&format=json&origin=*',
+            'https://en.wikipedia.org/w/api.php?action=query&list=categorymembers&cmtitle=Category:Photographic_styles&cmlimit=200&format=json&origin=*',
+            'https://es.wikipedia.org/w/api.php?action=query&list=categorymembers&cmtitle=Categor%C3%ADa:Movimientos_art%C3%ADsticos&cmlimit=200&format=json&origin=*'
+        ];
+
+        for (const url of sources) {
+            try {
+                const res = await fetch(url);
+                if (!res.ok) continue;
+                const data = await res.json();
+                const members = data?.query?.categorymembers || [];
+                const cleaned = members
+                    .map((m) => (m.title || '').trim())
+                    .filter((title) => title.length > 3)
+                    .filter((title) => !/^category:/i.test(title))
+                    .filter((title) => !/^categor[ií]a:/i.test(title))
+                    .filter((title) => !/^list of /i.test(title));
+                if (cleaned.length > 0) return cleaned;
+            } catch (err) {
+                console.warn('No se pudo leer estilos de la web:', err);
+            }
+        }
+        return [];
+    };
+
+    const buildSurpriseStyle = async () => {
+        const existingTitles = new Set(compositions.map((c) => c.title.toLowerCase()));
+        const webCandidates = await fetchStyleCandidatesFromWeb();
+        const uniqueWeb = webCandidates.filter((style) => !existingTitles.has(style.toLowerCase()));
+        const pool = uniqueWeb.length > 0 ? uniqueWeb : fallbackSurpriseStyles;
+        const picked = pool[Math.floor(Math.random() * pool.length)];
+
+        return {
+            id: `surprise-${Date.now()}`,
+            title: `Sorpresa: ${picked}`,
+            description: 'Estilo sorpresa elegido automaticamente desde referencias de la red.',
+            prompt: `Genera una fotografia editorial de moda donde la modelo de la segunda imagen lleve la prenda de la primera. El estilo visual debe ser ${picked}. Evita replicar estilos comunes de estudio, urbano, neon, interior lujoso, parque, playa, industrial, cafeteria o pub. Busca una direccion creativa inesperada y profesional.`
+        };
+    };
+
     // Render selector de composiciones
     function renderCompositionSelector() {
         compositionSelector.innerHTML = '';
@@ -271,7 +326,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     const updateGenerateButtonState = () => {
-        generateBtn.disabled = !(modelFile && outfitFile && selectedCompositions.length > 0);
+        const hasImages = Boolean(modelFile && outfitFile);
+        generateBtn.disabled = isProcessing || !(hasImages && selectedCompositions.length > 0);
+        surpriseBtn.disabled = isProcessing || !hasImages;
     };
 
     const showError = (msg) => {
@@ -285,6 +342,10 @@ document.addEventListener('DOMContentLoaded', () => {
         loadingSection.classList.add('hidden');
     };
     const hideError = () => { errorSection.classList.add('hidden'); };
+    const setProcessing = (value) => {
+        isProcessing = value;
+        updateGenerateButtonState();
+    };
 
     // Llamada a backend (proxy.php)
     const callGeminiApi = async (prompt, modelImage, outfitImage) => {
@@ -380,13 +441,26 @@ document.addEventListener('DOMContentLoaded', () => {
     setupDropZone(modelDropZone, modelInput, modelPreview, modelPrompt, data => modelFile = data);
     setupDropZone(outfitDropZone, outfitInput, outfitPreview, outfitPrompt, data => outfitFile = data);
 
-    // Helpers UI para tarjetas - Ya no se usan, las imágenes van directo al historial
+    const addGeneratedImageToHistory = async (src, styleMeta) => {
+        const historyItem = {
+            id: Math.random().toString(36).slice(2),
+            image: src,
+            title: styleMeta.title,
+            description: styleMeta.description,
+            compositions: [styleMeta.id],
+            createdAt: Date.now()
+        };
+        await saveHistoryItemToDb(historyItem);
+        history.unshift(historyItem);
+        renderHistory();
+    };
 
     // Principal: generar 2 imágenes por estilo, en secuencia global
     generateBtn.addEventListener('click', async () => {
         if (!modelFile || !outfitFile || selectedCompositions.length === 0) return;
 
         hideError();
+        setProcessing(true);
         loadingSection.classList.remove('hidden');
 
         const selected = selectedCompositions.map(id => compositions.find(c => c.id === id));
@@ -396,20 +470,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     try {
                         // Esperar a que termine antes de pasar a la siguiente
                         const src = await callGeminiApi(comp.prompt, modelFile, outfitFile);
-                        
-                        // Guardar en historial persistente (IndexedDB)
-                        const historyItem = {
-                            id: Math.random().toString(36).slice(2),
-                            image: src,
-                            title: comp.title,
-                            description: comp.description,
-                            compositions: selectedCompositions,
-                            createdAt: Date.now()
-                        };
-                        await saveHistoryItemToDb(historyItem);
-                        history.unshift(historyItem);
-                        renderHistory();
-                        
+                        await addGeneratedImageToHistory(src, comp);
                         setupLightbox();
                     } catch (err) {
                         console.error(`Fallo generando ${comp.title} #${copy}:`, err);
@@ -419,6 +480,35 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         } finally {
             loadingSection.classList.add('hidden');
+            setProcessing(false);
+        }
+    });
+
+    surpriseBtn.addEventListener('click', async () => {
+        if (!modelFile || !outfitFile) {
+            showError('Primero sube la foto de la modelo y la prenda para usar el modo sorpresa.');
+            return;
+        }
+
+        hideError();
+        setProcessing(true);
+        loadingSection.classList.remove('hidden');
+
+        try {
+            const surpriseStyle = await buildSurpriseStyle();
+            for (let copy = 1; copy <= 2; copy++) {
+                try {
+                    const src = await callGeminiApi(surpriseStyle.prompt, modelFile, outfitFile);
+                    await addGeneratedImageToHistory(src, surpriseStyle);
+                    setupLightbox();
+                } catch (err) {
+                    console.error(`Fallo en modo sorpresa #${copy}:`, err);
+                    showError(`Error en modo sorpresa #${copy}: ${err.message}`);
+                }
+            }
+        } finally {
+            loadingSection.classList.add('hidden');
+            setProcessing(false);
         }
     });
 
