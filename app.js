@@ -10,21 +10,197 @@ document.addEventListener('DOMContentLoaded', () => {
     const outfitPrompt = document.getElementById('outfit-prompt');
     const compositionSelector = document.getElementById('composition-selector');
     const generateBtn = document.getElementById('generate-btn');
-    const resetBtn = document.getElementById('reset-btn');
-    const downloadAllBtn = document.getElementById('download-all-btn');
     const loadingSection = document.getElementById('loading-section');
-    const resultsSection = document.getElementById('results-section');
-    const resultsGrid = document.getElementById('results-grid');
     const errorSection = document.getElementById('error-section');
     const errorMessage = document.getElementById('error-message');
     const lightbox = document.getElementById('lightbox');
     const lightboxImg = document.getElementById('lightbox-img');
     const closeLightbox = document.getElementById('close-lightbox');
+    const historySection = document.getElementById('history-section');
+    const historyGrid = document.getElementById('history-grid');
+    const clearHistoryBtn = document.getElementById('clear-history-btn');
 
     // Estado
     let modelFile = null;
     let outfitFile = null;
     let selectedCompositions = [];
+    const DB_NAME = 'vestir_modelo_db';
+    const DB_VERSION = 1;
+    const STORE_NAME = 'history';
+    let historyDb = null;
+
+    const openHistoryDb = () => new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => { historyDb = request.result; resolve(historyDb); };
+        request.onupgradeneeded = (e) => {
+            const database = e.target.result;
+            if (!database.objectStoreNames.contains(STORE_NAME)) {
+                database.createObjectStore(STORE_NAME, { keyPath: 'id' });
+            }
+        };
+    });
+
+    const loadHistoryFromDb = async () => {
+        try {
+            if (!historyDb) await openHistoryDb();
+            return await new Promise((resolve, reject) => {
+                const tx = historyDb.transaction(STORE_NAME, 'readonly');
+                const store = tx.objectStore(STORE_NAME);
+                const req = store.getAll();
+                req.onsuccess = () => {
+                    const items = req.result || [];
+                    items.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+                    resolve(items);
+                };
+                req.onerror = () => reject(req.error);
+            });
+        } catch (e) {
+            console.warn('Error cargando historial:', e);
+            return [];
+        }
+    };
+
+    const saveHistoryItemToDb = async (item) => {
+        try {
+            if (!historyDb) await openHistoryDb();
+            return await new Promise((resolve, reject) => {
+                const tx = historyDb.transaction(STORE_NAME, 'readwrite');
+                const store = tx.objectStore(STORE_NAME);
+                const req = store.put(item);
+                req.onsuccess = () => resolve();
+                req.onerror = () => reject(req.error);
+            });
+        } catch (e) {
+            console.warn('Error guardando item:', e);
+        }
+    };
+
+    const deleteHistoryItemFromDb = async (id) => {
+        try {
+            if (!historyDb) await openHistoryDb();
+            return await new Promise((resolve, reject) => {
+                const tx = historyDb.transaction(STORE_NAME, 'readwrite');
+                const store = tx.objectStore(STORE_NAME);
+                const req = store.delete(id);
+                req.onsuccess = () => resolve();
+                req.onerror = () => reject(req.error);
+            });
+        } catch (e) {
+            console.warn('Error eliminando item:', e);
+        }
+    };
+
+    const clearHistoryFromDb = async () => {
+        try {
+            if (!historyDb) await openHistoryDb();
+            return await new Promise((resolve, reject) => {
+                const tx = historyDb.transaction(STORE_NAME, 'readwrite');
+                const store = tx.objectStore(STORE_NAME);
+                const req = store.clear();
+                req.onsuccess = () => resolve();
+                req.onerror = () => reject(req.error);
+            });
+        } catch (e) {
+            console.warn('Error limpiando historial:', e);
+        }
+    };
+
+    let history = [];
+
+    async function loadHistory() {
+        history = await loadHistoryFromDb();
+        renderHistory();
+    }
+
+    // Renderizar historial
+    function renderHistory() {
+        if (history.length === 0) {
+            historySection.classList.remove('hidden');
+            historyGrid.innerHTML = '<p class="text-sm text-gray-400 text-center col-span-2">Aun no hay imagenes en el historial.</p>';
+            clearHistoryBtn.classList.add('hidden');
+            return;
+        }
+        historySection.classList.remove('hidden');
+        clearHistoryBtn.classList.remove('hidden');
+        historyGrid.innerHTML = '';
+        
+        history.forEach((item) => {
+            const card = document.createElement('div');
+            card.className = 'history-card';
+            card.innerHTML = `
+                <img src="${item.image}" alt="${item.title}" data-id="${item.id}">
+                <div class="history-card-actions">
+                    <button class="download-btn" data-id="${item.id}" title="Descargar">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M13 8a1 1 0 10-2 0v3.586l-1.293-1.293a1 1 0 00-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L13 11.586V8z" /><path d="M3 14a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" /></svg>
+                    </button>
+                    <button class="edit-btn" data-id="${item.id}" title="Re-editar">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
+                    </button>
+                    <button class="delete-btn" data-id="${item.id}" title="Eliminar">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>
+                    </button>
+                </div>
+            `;
+            historyGrid.appendChild(card);
+        });
+
+        // Eventos para las imágenes del historial
+        historyGrid.querySelectorAll('.history-card img').forEach(img => {
+            img.addEventListener('click', (e) => {
+                lightboxImg.src = e.target.src;
+                lightbox.classList.remove('hidden');
+            });
+        });
+
+        // Eventos para botones
+        historyGrid.querySelectorAll('.download-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const itemId = btn.dataset.id;
+                const item = history.find(h => h.id === itemId);
+                if (!item) return;
+                const link = document.createElement('a');
+                link.href = item.image;
+                link.download = `${item.title || 'imagen'}-${item.id}.png`;
+                link.click();
+            });
+        });
+
+        historyGrid.querySelectorAll('.edit-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const itemId = btn.dataset.id;
+                const item = history.find(h => h.id === itemId);
+                if (!item) return;
+                if (item.compositions && item.compositions.length > 0) {
+                    selectedCompositions = [item.compositions[0]];
+                    renderCompositionSelector();
+                }
+                updateGenerateButtonState();
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            });
+        });
+
+        historyGrid.querySelectorAll('.delete-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const itemId = btn.dataset.id;
+                await deleteHistoryItemFromDb(itemId);
+                history = history.filter(h => h.id !== itemId);
+                renderHistory();
+            });
+        });
+    }
+
+    // Limpiar historial
+    clearHistoryBtn.addEventListener('click', async () => {
+        if (confirm('¿Estás seguro de que quieres borrar todo el historial?')) {
+            await clearHistoryFromDb();
+            history = [];
+            renderHistory();
+        }
+    });
 
     // Estilos/composiciones
     const compositions = [
@@ -204,159 +380,51 @@ document.addEventListener('DOMContentLoaded', () => {
     setupDropZone(modelDropZone, modelInput, modelPreview, modelPrompt, data => modelFile = data);
     setupDropZone(outfitDropZone, outfitInput, outfitPreview, outfitPrompt, data => outfitFile = data);
 
-    // Helpers UI para tarjetas
-    function insertPlaceholderCard(comp, indexForComp) {
-        const uid = `${comp.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        const cardHTML = `
-            <div class="bg-gray-800 rounded-lg overflow-hidden shadow-lg relative group">
-                <img data-uid="${uid}" src="https://placehold.co/600x800/1f2937/4b5563?text=Generando..." alt="${comp.title} ${indexForComp}" class="result-image w-full h-auto object-cover aspect-[3/4]">
-                <button class="close-btn" title="Eliminar esta imagen">×</button>
-                <div class="p-4">
-                    <div class="flex justify-between items-center">
-                        <div>
-                            <h3 class="font-semibold text-white">${comp.title} <span class="text-xs text-gray-400">#${indexForComp}</span></h3>
-                            <p class="text-sm text-gray-400">${comp.description}</p>
-                        </div>
-                        <a href="#" download="${comp.id}-${indexForComp}.png" class="download-btn hidden ml-4 flex-shrink-0 inline-flex items-center justify-center bg-blue-600 text-white rounded-full h-10 w-10 hover:bg-blue-700 transition-colors" title="Descargar imagen">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M13 8a1 1 0 10-2 0v3.586l-1.293-1.293a1 1 0 00-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L13 11.586V8z" /><path d="M3 14a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" /></svg>
-                        </a>
-                    </div>
-                </div>
-            </div>`;
-        resultsGrid.insertAdjacentHTML('afterbegin', cardHTML);
-        const imgElement = resultsGrid.querySelector(`img[data-uid="${uid}"]`);
-        return imgElement?.closest('.bg-gray-800') || null;
-    }
+    // Helpers UI para tarjetas - Ya no se usan, las imágenes van directo al historial
 
     // Principal: generar 2 imágenes por estilo, en secuencia global
     generateBtn.addEventListener('click', async () => {
         if (!modelFile || !outfitFile || selectedCompositions.length === 0) return;
 
         hideError();
-        resultsSection.classList.remove('hidden');
         loadingSection.classList.remove('hidden');
-        downloadAllBtn.classList.add('hidden');
 
         const selected = selectedCompositions.map(id => compositions.find(c => c.id === id));
-        let successCount = 0;
-
         try {
             for (const comp of selected) {
                 for (let copy = 1; copy <= 2; copy++) {
-                    // Crear placeholder para esta generación
-                    const card = insertPlaceholderCard(comp, copy);
-                    if (!card) continue;
-                    const imgElement = card.querySelector('.result-image');
-                    const downloadBtn = card.querySelector('.download-btn');
-
                     try {
                         // Esperar a que termine antes de pasar a la siguiente
                         const src = await callGeminiApi(comp.prompt, modelFile, outfitFile);
-                        imgElement.src = src;
-                        downloadBtn.href = src;
-                        downloadBtn.classList.remove('hidden');
-                        successCount++;
+                        
+                        // Guardar en historial persistente (IndexedDB)
+                        const historyItem = {
+                            id: Math.random().toString(36).slice(2),
+                            image: src,
+                            title: comp.title,
+                            description: comp.description,
+                            compositions: selectedCompositions,
+                            createdAt: Date.now()
+                        };
+                        await saveHistoryItemToDb(historyItem);
+                        history.unshift(historyItem);
+                        renderHistory();
+                        
                         setupLightbox();
                     } catch (err) {
                         console.error(`Fallo generando ${comp.title} #${copy}:`, err);
-                        // Eliminar sólo el placeholder fallido y mostrar error no bloqueante
-                        card.remove();
                         showError(`Error al generar "${comp.title}" #${copy}: ${err.message}`);
                     }
                 }
             }
         } finally {
             loadingSection.classList.add('hidden');
-            if (successCount > 0) downloadAllBtn.classList.remove('hidden');
         }
-    });
-
-    resetBtn.addEventListener('click', () => {
-        modelFile = null;
-        outfitFile = null;
-        selectedCompositions = [];
-
-        modelPreview.classList.add('hidden');
-        modelPrompt.classList.remove('hidden');
-        modelInput.value = '';
-
-        outfitPreview.classList.add('hidden');
-        outfitPrompt.classList.remove('hidden');
-        outfitInput.value = '';
-
-        renderCompositionSelector();
-        updateGenerateButtonState();
-        resultsSection.classList.add('hidden');
-        resultsGrid.innerHTML = '';
-        hideError();
-        downloadAllBtn.classList.add('hidden');
-    });
-
-    // Descargar ZIP
-    downloadAllBtn.addEventListener('click', () => {
-        if (typeof JSZip === 'undefined') {
-            showError('Error: La librería JSZip no está disponible. Revisa la conexión a internet o la carga del script.');
-            return;
-        }
-
-        const zip = new JSZip();
-        const imgs = resultsGrid.querySelectorAll('.result-image');
-        let hasValidImages = false;
-
-        imgs.forEach((img, index) => {
-            const src = img.src;
-            const alt = img.alt || `image-${index}`;
-            if (!src || src.startsWith('https://placehold.co')) return;
-
-            try {
-                const base64Match = src.match(/^data:image\/.+;base64,(.+)$/);
-                if (base64Match && base64Match[1]) {
-                    const base64Data = base64Match[1];
-                    const fileName = `${alt.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${index + 1}.png`;
-                    zip.file(fileName, base64Data, { base64: true });
-                    hasValidImages = true;
-                } else {
-                    console.warn(`Imagen no válida para ${alt}: ${src}`);
-                }
-            } catch (err) {
-                console.error(`Error procesando la imagen ${alt}:`, err);
-            }
-        });
-
-        if (!hasValidImages) {
-            showError('No hay imágenes válidas para descargar.');
-            return;
-        }
-
-        zip.generateAsync({ type: 'blob' })
-            .then(content => {
-                if (content.size === 0) throw new Error('El archivo ZIP generado está vacío.');
-                const link = document.createElement('a');
-                link.href = URL.createObjectURL(content);
-                link.download = 'fotografias-editoriales.zip';
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                URL.revokeObjectURL(link.href);
-            })
-            .catch(err => {
-                console.error('Error generando el ZIP:', err);
-                showError('No se pudo generar el archivo ZIP: ' + err.message);
-            });
     });
 
     // Lightbox
     function setupLightbox() {
-        resultsGrid.querySelectorAll('.result-image').forEach(img => {
-            if (img.dataset.lightboxAttached) return;
-            img.dataset.lightboxAttached = true;
-            img.addEventListener('click', (e) => {
-                if (e.target.src && !e.target.src.startsWith('https://placehold.co')) {
-                    lightboxImg.src = e.target.src;
-                    lightbox.classList.remove('hidden');
-                }
-            });
-        });
+        // Las imágenes del historial ya tienen su propio evento en renderHistory
     }
     const closeLightboxHandler = () => {
         lightbox.classList.add('hidden');
@@ -364,14 +432,13 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     closeLightbox.addEventListener('click', closeLightboxHandler);
     lightbox.addEventListener('click', (e) => { if (e.target === lightbox) closeLightboxHandler(); });
+    
+    // Cerrar lightbox con Escape
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') closeLightboxHandler();
+    });
 
     // Inicialización
     renderCompositionSelector();
-
-    // Botón cerrar tarjeta
-    document.addEventListener('click', (e) => {
-        if (e.target.classList.contains('close-btn')) {
-            e.target.closest('.bg-gray-800')?.remove();
-        }
-    });
+    loadHistory();
 });
