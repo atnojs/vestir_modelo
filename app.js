@@ -26,6 +26,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let outfitFile = null;
     let selectedCompositions = [];
     let isProcessing = false;
+    const usedSurpriseStyles = new Set();
     const DB_NAME = 'vestir_modelo_db';
     const DB_VERSION = 1;
     const STORE_NAME = 'history';
@@ -235,9 +236,13 @@ document.addEventListener('DOMContentLoaded', () => {
             'https://es.wikipedia.org/w/api.php?action=query&list=categorymembers&cmtitle=Categor%C3%ADa:Movimientos_art%C3%ADsticos&cmlimit=200&format=json&origin=*'
         ];
 
+        const aggregated = [];
+
         for (const url of sources) {
             try {
-                const res = await fetch(url);
+                const sep = url.includes('?') ? '&' : '?';
+                const noCacheUrl = `${url}${sep}ts=${Date.now()}-${Math.random().toString(36).slice(2)}`;
+                const res = await fetch(noCacheUrl, { cache: 'no-store' });
                 if (!res.ok) continue;
                 const data = await res.json();
                 const members = data?.query?.categorymembers || [];
@@ -247,20 +252,41 @@ document.addEventListener('DOMContentLoaded', () => {
                     .filter((title) => !/^category:/i.test(title))
                     .filter((title) => !/^categor[ií]a:/i.test(title))
                     .filter((title) => !/^list of /i.test(title));
-                if (cleaned.length > 0) return cleaned;
+                aggregated.push(...cleaned);
             } catch (err) {
                 console.warn('No se pudo leer estilos de la web:', err);
             }
         }
-        return [];
+
+        return Array.from(new Set(aggregated));
     };
 
     const buildSurpriseStyle = async () => {
         const existingTitles = new Set(compositions.map((c) => c.title.toLowerCase()));
+        history
+            .filter((h) => typeof h.title === 'string' && h.title.toLowerCase().startsWith('sorpresa:'))
+            .forEach((h) => {
+                const raw = h.title.replace(/^sorpresa:\s*/i, '').trim().toLowerCase();
+                if (raw) usedSurpriseStyles.add(raw);
+            });
+
         const webCandidates = await fetchStyleCandidatesFromWeb();
-        const uniqueWeb = webCandidates.filter((style) => !existingTitles.has(style.toLowerCase()));
-        const pool = uniqueWeb.length > 0 ? uniqueWeb : fallbackSurpriseStyles;
+        if (webCandidates.length === 0) {
+            throw new Error('No se pudieron obtener estilos desde la web. Revisa la conexion e intentalo de nuevo.');
+        }
+
+        const uniqueWeb = webCandidates.filter((style) => {
+            const normalized = style.toLowerCase();
+            return !existingTitles.has(normalized) && !usedSurpriseStyles.has(normalized);
+        });
+
+        if (uniqueWeb.length === 0) {
+            throw new Error('No quedan estilos sorpresa nuevos en este momento. Vuelve a intentarlo en unos minutos.');
+        }
+
+        const pool = uniqueWeb;
         const picked = pool[Math.floor(Math.random() * pool.length)];
+        usedSurpriseStyles.add(picked.toLowerCase());
 
         return {
             id: `surprise-${Date.now()}`,
@@ -506,6 +532,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     showError(`Error en modo sorpresa #${copy}: ${err.message}`);
                 }
             }
+        } catch (err) {
+            console.error('Fallo preparando modo sorpresa:', err);
+            showError(`No se pudo preparar el estilo sorpresa: ${err.message}`);
         } finally {
             loadingSection.classList.add('hidden');
             setProcessing(false);
