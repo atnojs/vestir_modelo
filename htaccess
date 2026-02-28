@@ -1,0 +1,11 @@
+SetEnv NOMBRE_VARIABLE valor
+AddType text/javascript .mjs
+SetEnv VERTEX_PROJECT_ID nano-banana-470719
+SetEnv VERTEX_LOCATION europe-west4
+SetEnv VERTEX_SA_JSON /home/u111905594/domains/atnojs.es/public_html/keys/nano-banana-470719-b7b34d497117.json
+<FilesMatch "\.json$">
+  Require all denied
+</FilesMatch>
+
+# Clave API de Vestir a un/a modelo
+SetEnv GEMINI_API_KEY "AIzaSyB1BA6fXEs4zoNy-wP12vXPd836HZZZkhw"
