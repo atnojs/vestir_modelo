@@ -385,7 +385,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Llamada a backend (proxy.php)
     const callGeminiApi = async (prompt, modelImage, outfitImage) => {
         const payload = { prompt, modelImage, outfitImage, model: 'gemini-3.1-flash-image-preview' };
-        let attempt = 0, maxAttempts = 5;
+        let attempt = 0, maxAttempts = 6;
 
         while (attempt < maxAttempts) {
             try {
@@ -406,6 +406,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 if (!res.ok) {
                     const msg = data?.error?.message || data?.error || `Error HTTP ${res.status}`;
+                    // Special handling for rate limits that tell us how long to wait
+                    if (res.status === 429 && msg.includes('retry in')) {
+                        const match = msg.match(/retry in ([\d\.]+)s/);
+                        if (match && match[1]) {
+                            const delayMs = Math.ceil(parseFloat(match[1]) * 1000) + 1000;
+                            console.warn(`Límite de cuota excedido. La API pide esperar ${match[1]}s. Esperando ${delayMs}ms...`);
+                            attempt++;
+                            if (attempt >= maxAttempts) throw new Error(msg);
+                            await new Promise(r => setTimeout(r, delayMs));
+                            continue; // Retry without falling into the generic catch block
+                        }
+                    }
                     throw new Error(msg);
                 }
 
@@ -433,10 +445,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.error('Sin datos de imagen:', data);
                 throw new Error('No se encontró imagen en la respuesta.');
             } catch (err) {
+                // If the error was already handled by the continue statement, this catch might not hit
+                // But for generic errors (network timeout, 500 etc), we do an exponential backoff
                 console.error(`Intento ${attempt + 1} fallido:`, err);
                 attempt++;
                 if (attempt >= maxAttempts) throw err;
-                await new Promise(r => setTimeout(r, 2000 * Math.pow(2, attempt)));
+
+                // We use a base smaller delay if it's not a clear quota error
+                await new Promise(r => setTimeout(r, 3000 * attempt));
             }
         }
     };
