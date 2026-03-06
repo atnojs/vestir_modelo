@@ -253,10 +253,17 @@ document.addEventListener('DOMContentLoaded', () => {
                     .filter((title) => !/^category:/i.test(title))
                     .filter((title) => !/^categor[ií]a:/i.test(title))
                     .filter((title) => !/^list of /i.test(title));
-                aggregated.push(...cleaned);
+                if (cleaned.length > 0) {
+                    aggregated.push(...cleaned);
+                }
             } catch (err) {
                 console.warn('No se pudo leer estilos de la web:', err);
             }
+        }
+
+        if (aggregated.length === 0) {
+            console.warn('Usando fallbackSurpriseStyles debido a fallo en la red.');
+            return fallbackSurpriseStyles;
         }
 
         return Array.from(new Set(aggregated));
