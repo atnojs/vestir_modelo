@@ -3,7 +3,7 @@
 header('Content-Type: application/json');
 
 // 2. Obtiene la API Key de la variable de entorno.
-$apiKey = getenv('GEMINI_KEY_VESTIR_MODELO');
+$apiKey = getenv('C');
 
 if (!$apiKey) {
     http_response_code(500);
