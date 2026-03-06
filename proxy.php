@@ -22,7 +22,7 @@ if (!$input) {
 $prompt = $input['prompt'];
 $modelImage = $input['modelImage'];
 $outfitImage = $input['outfitImage'];
-$model = $input['model'] ?? 'gemini-2.5-flash-image';
+$model = $input['model'] ?? 'gemini-3.1-flash-image-preview';
 
 // 4. Construye el payload correcto.
 // CORRECCIÓN: Imágenes primero (prenda, luego modelo), prompt al final.

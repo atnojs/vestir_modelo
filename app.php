@@ -38,8 +38,8 @@ $payload = [
 ];
 
 // 5. Realiza la llamada a la API de Gemini usando cURL.
-// CAMBIO PRECISO: Modelo actualizado a gemini-1.5-flash-image-preview y API a v1beta.
-$apiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-image-preview:generateContent?key=' . $apiKey;
+// CAMBIO PRECISO: Modelo actualizado a gemini-3.1-flash-image-preview y API a v1beta.
+$apiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key=' . $apiKey;
 
 $ch = curl_init($apiUrl);
 curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);

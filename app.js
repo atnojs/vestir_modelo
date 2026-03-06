@@ -14,6 +14,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const loadingSection = document.getElementById('loading-section');
     const errorSection = document.getElementById('error-section');
     const errorMessage = document.getElementById('error-message');
+    const customPromptArea = document.getElementById('custom-prompt');
     const lightbox = document.getElementById('lightbox');
     const lightboxImg = document.getElementById('lightbox-img');
     const closeLightbox = document.getElementById('close-lightbox');
@@ -127,7 +128,7 @@ document.addEventListener('DOMContentLoaded', () => {
         historySection.classList.remove('hidden');
         clearHistoryBtn.classList.remove('hidden');
         historyGrid.innerHTML = '';
-        
+
         history.forEach((item) => {
             const card = document.createElement('div');
             card.className = 'history-card';
@@ -353,7 +354,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const updateGenerateButtonState = () => {
         const hasImages = Boolean(modelFile && outfitFile);
-        generateBtn.disabled = isProcessing || !(hasImages && selectedCompositions.length > 0);
+        // Habilitar si hay imágenes, sin importar si hay estilos seleccionados (ahora es opcional)
+        generateBtn.disabled = isProcessing || !hasImages;
         surpriseBtn.disabled = isProcessing || !hasImages;
     };
 
@@ -375,7 +377,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Llamada a backend (proxy.php)
     const callGeminiApi = async (prompt, modelImage, outfitImage) => {
-        const payload = { prompt, modelImage, outfitImage, model: 'gemini-2.5-flash-image' };
+        const payload = { prompt, modelImage, outfitImage, model: 'gemini-3.1-flash-image-preview' };
         let attempt = 0, maxAttempts = 5;
 
         while (attempt < maxAttempts) {
@@ -386,13 +388,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     body: JSON.stringify(payload),
                 });
                 const text = await res.text();
-                
+
                 let data;
-                try { 
-                    data = JSON.parse(text); 
-                } catch { 
+                try {
+                    data = JSON.parse(text);
+                } catch {
                     console.error('Respuesta no JSON del servidor:', text);
-                    throw new Error('Respuesta inválida del servidor.'); 
+                    throw new Error('Respuesta inválida del servidor.');
                 }
 
                 if (!res.ok) {
@@ -435,13 +437,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // Dropzones
     const setupDropZone = (dropZone, input, preview, promptEl, fileStore) => {
         dropZone.addEventListener('click', () => input.click());
-        ['dragenter','dragover','dragleave','drop'].forEach(ev =>
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(ev =>
             dropZone.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); }, false)
         );
-        ['dragenter','dragover'].forEach(ev =>
+        ['dragenter', 'dragover'].forEach(ev =>
             dropZone.addEventListener(ev, () => dropZone.classList.add('dragover'), false)
         );
-        ['dragleave','drop'].forEach(ev =>
+        ['dragleave', 'drop'].forEach(ev =>
             dropZone.addEventListener(ev, () => dropZone.classList.remove('dragover'), false)
         );
 
@@ -483,15 +485,42 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Principal: generar 2 imágenes por estilo, en secuencia global
     generateBtn.addEventListener('click', async () => {
-        if (!modelFile || !outfitFile || selectedCompositions.length === 0) return;
+        if (!modelFile || !outfitFile) return;
 
         hideError();
         setProcessing(true);
         loadingSection.classList.remove('hidden');
 
-        const selected = selectedCompositions.map(id => compositions.find(c => c.id === id));
+        const customPromptText = customPromptArea ? customPromptArea.value.trim() : '';
+
+        // Si no hay estilos seleccionados, creamos uno dinámico sobre la marcha
+        let selectedToGenerate = selectedCompositions.map(id => compositions.find(c => c.id === id));
+
+        if (selectedToGenerate.length === 0) {
+            let dynPrompt = "Genera una fotografía realista donde la modelo de la segunda imagen lleve puesta exactamente la prenda de la primera imagen. Mantén la pose y ambiente original o uno neutro.";
+            if (customPromptText !== '') {
+                dynPrompt += " Sigue EXTREMADAMENTE BIEN estas instrucciones adicionales del usuario para el entorno o la pose (son mas importantes que las de por defecto): " + customPromptText;
+            }
+
+            selectedToGenerate.push({
+                id: 'custom-generation-' + Date.now(),
+                title: customPromptText !== '' ? 'Generación Personalizada' : 'Generación Directa (Base)',
+                description: customPromptText !== '' ? customPromptText.substring(0, 50) + '...' : 'Usando el prompt base automático.',
+                prompt: dynPrompt
+            });
+        } else {
+            // Si eligió estilos y también puso texto extra, modificamos esos estilos al vuelo
+            if (customPromptText !== '') {
+                selectedToGenerate = selectedToGenerate.map(comp => {
+                    return {
+                        ...comp,
+                        prompt: comp.prompt + " IMPORTANTE: ADEMÁS de este estilo, aplica también estas instrucciones del usuario: " + customPromptText
+                    };
+                });
+            }
+        }
         try {
-            for (const comp of selected) {
+            for (const comp of selectedToGenerate) {
                 for (let copy = 1; copy <= 2; copy++) {
                     try {
                         // Esperar a que termine antes de pasar a la siguiente
@@ -551,7 +580,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     closeLightbox.addEventListener('click', closeLightboxHandler);
     lightbox.addEventListener('click', (e) => { if (e.target === lightbox) closeLightboxHandler(); });
-    
+
     // Cerrar lightbox con Escape
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') closeLightboxHandler();
@@ -561,3 +590,4 @@ document.addEventListener('DOMContentLoaded', () => {
     renderCompositionSelector();
     loadHistory();
 });
+
