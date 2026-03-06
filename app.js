@@ -386,9 +386,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const callGeminiApi = async (prompt, modelImage, outfitImage) => {
         const payload = { prompt, modelImage, outfitImage, model: 'gemini-3.1-flash-image-preview' };
         let attempt = 0, maxAttempts = 6;
+        const loadingText = document.querySelector('.loading-text');
+        const defaultLoadingMsg = "IA Generando Obra Maestra...";
 
         while (attempt < maxAttempts) {
             try {
+                if (loadingText && loadingText.textContent.includes('Pausando')) {
+                    loadingText.textContent = defaultLoadingMsg;
+                }
+
                 const res = await fetch('./proxy.php', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -407,14 +413,32 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!res.ok) {
                     const msg = data?.error?.message || data?.error || `Error HTTP ${res.status}`;
                     // Special handling for rate limits that tell us how long to wait
-                    if (res.status === 429 && msg.includes('retry in')) {
+                    if (msg.includes('retry in')) {
                         const match = msg.match(/retry in ([\d\.]+)s/);
                         if (match && match[1]) {
                             const delayMs = Math.ceil(parseFloat(match[1]) * 1000) + 1000;
+                            const delaySecs = Math.ceil(delayMs / 1000);
                             console.warn(`Límite de cuota excedido. La API pide esperar ${match[1]}s. Esperando ${delayMs}ms...`);
+
                             attempt++;
                             if (attempt >= maxAttempts) throw new Error(msg);
-                            await new Promise(r => setTimeout(r, delayMs));
+
+                            if (loadingText) {
+                                let remaining = delaySecs;
+                                loadingText.textContent = `Pausando ${remaining}s por límite de cuota IA...`;
+                                // Update countdown every second
+                                const countdownInterval = setInterval(() => {
+                                    remaining--;
+                                    if (remaining > 0) {
+                                        loadingText.textContent = `Pausando ${remaining}s por límite de cuota IA...`;
+                                    }
+                                }, 1000);
+
+                                await new Promise(r => setTimeout(r, delayMs));
+                                clearInterval(countdownInterval);
+                            } else {
+                                await new Promise(r => setTimeout(r, delayMs));
+                            }
                             continue; // Retry without falling into the generic catch block
                         }
                     }
@@ -558,6 +582,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         } finally {
             loadingSection.classList.add('hidden');
+            const loadingText = document.querySelector('.loading-text');
+            if (loadingText) loadingText.textContent = "IA Generando Obra Maestra...";
             setProcessing(false);
         }
     });
@@ -589,6 +615,8 @@ document.addEventListener('DOMContentLoaded', () => {
             showError(`No se pudo preparar el estilo sorpresa: ${err.message}`);
         } finally {
             loadingSection.classList.add('hidden');
+            const loadingText = document.querySelector('.loading-text');
+            if (loadingText) loadingText.textContent = "IA Generando Obra Maestra...";
             setProcessing(false);
         }
     });
